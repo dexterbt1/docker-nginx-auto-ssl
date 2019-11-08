@@ -1,8 +1,10 @@
 # docker-nginx-auto-ssl
+*The simpliest solution to add SSL cert to your site*
+
 ![build](https://img.shields.io/docker/build/valian/docker-nginx-auto-ssl.svg)
 ![build](https://img.shields.io/docker/pulls/valian/docker-nginx-auto-ssl.svg)
 
-Docker image for automatic generation of SSL certs using Let's encrypt and Open Resty, with reasonable SSL settings. 
+Docker image for automatic generation of SSL certs using Let's encrypt and Open Resty, with reasonable SSL settings, HTTP/2 and WebSockets support out-of-the-box.
 You can specify allowed domains and simple proxies using ENV variables, and easily override `nginx.conf` to your needs. 
 
 This is possible thanks to [OpenResty](https://github.com/openresty/openresty) and [lua-resty-auto-ssl](https://github.com/GUI/lua-resty-auto-ssl).
@@ -11,21 +13,65 @@ This is possible thanks to [OpenResty](https://github.com/openresty/openresty) a
 
 # Usage
 
-Basic usage:
+Quick start to generate and auto-renew certs for your blog / application:
+
 ```Bash
+# replace these values
+export DOMAIN=yourdomain.com
+export APP_ADDRESS=localhost:8080
+
+# install docker first, and then run following command
 docker run -d \
-  -p 80:80 \
-  -p 443:443 \
+  --name nginx-auto-ssl \
+  --restart on-failure \
+  --network host \
+  -e ALLOWED_DOMAINS="$DOMAIN" \
+  -e SITES="$DOMAIN=$APP_ADDRESS" \
+  -v ssl-data:/etc/resty-auto-ssl \
   valian/docker-nginx-auto-ssl
+
+# display logs from container, to check if everything is fine.
+docker logs nginx-auto-ssl
 ```
 
-Created certs are kept in `/etc/resty-auto-ssl` directory. It's volume by default, but you may want to mount it to some directory on the host.
+[Docker-compose](https://docs.docker.com/compose/) example:
+
+```yaml
+# docker-compose.yml
+version: '2'
+services:
+  nginx:
+    image: valian/docker-nginx-auto-ssl
+    restart: on-failure
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ssl_data:/etc/resty-auto-ssl
+    environment:
+      ALLOWED_DOMAINS: 'yourdomain.com'
+      SITES: 'yourdomain.com=myapp:80'
+  
+  # your application, listening on port specified in `SITES` env variable
+  myapp:
+    image: nginx
+
+volumes:
+  ssl_data:
+```
+
+start using
+```Bash
+docker-compose up -d
+```
+
+Both cases will work when request to `yourdomain.com` will reach just-deployed nginx (so when it will be running on your server, with correctly defined DNS entry).
 
 Available configuration options: 
 
  | Variable | Example | Description
  | --- | --- | ---|
- | ALLOWED_DOMAINS | `(www\|api).example.com`, `example.com`, `([a-z]+.)?example.com` | [lua pattern](http://lua-users.org/wiki/PatternsTutorial) of allowed domains. Internally, we're using `string.match`. By default we accept all domains | 
+ | ALLOWED_DOMAINS | `(www\|api).example.com`, `example.com`, `([a-z]+.)?example.com` | Regex pattern of allowed domains. Internally, we're using [ngx.re.match](https://github.com/openresty/lua-nginx-module#ngxrematch). By default we accept all domains |
  | DIFFIE_HELLMAN | `true` | Force regeneration of `dhparam.pem`. If not specified, default one is used. |
  | SITES | `db.com=localhost:5432; *.app.com=localhost:8080`, `_=localhost:8080` | Shortcut for defining multiple proxies, in form of `domain1=endpoint1; domain2=endpoint2`. Default template for proxy is [here](https://github.com/Valian/docker-nginx-auto-ssl/blob/master/snippets/server-proxy.conf). Name `_` means default server, just like in nginx configuration |
  | FORCE_HTTPS | `true`, `false` | If `true`, automatically adds location to `resty-server-http.conf` redirecting traffic from http to https. `true` by default. |
@@ -42,20 +88,6 @@ docker run -d \
   -p 443:443 \
   -e ALLOWED_DOMAINS=example.com \
   -e SITES='example.com=localhost:5432;*.example.com=localhost:8080' \
-  valian/docker-nginx-auto-ssl
-```
-
-All options:
-```Bash
-docker run -d \
-  --name nginx-auto-ssl \
-  --restart on-failure \
-  -p 80:80 \
-  -p 443:443 \
-  -e ALLOWED_DOMAINS=example.com \
-  -e SITES='example.com=localhost:5432;*.example.com=localhost:8080' \
-  -e DIFFIE_HELLMAN=true \
-  -v ssl-data:/etc/resty-auto-ssl \
   valian/docker-nginx-auto-ssl
 ```
 
@@ -202,6 +234,7 @@ docker run [YOUR_OPTIONS] docker-nginx-auto-ssl
 
 # CHANGELOG
 
+* **18-04-2019** - Added WebSocket support
 * **29-05-2017** - Fixed duplicate redirect location after container restart #2
 * **19-12-2017** - Support for `$SITES` variable   
 * **2-12-2017** - Dropped HSTS by default  
